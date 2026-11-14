@@ -27,12 +27,13 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-O projeto usa o `opencv-contrib-python`, porque o filtro guiado fica no módulo extra do OpenCV.
-Esse pacote não pode ser instalado junto com o `opencv-python`. Se o ambiente já tiver o
-`opencv-python`, desinstale-o antes do `pip install`:
+O projeto usa o `opencv-contrib-python-headless`: o módulo extra do OpenCV, onde fica o filtro
+guiado, na versão sem interface gráfica, que também funciona em servidores como o Streamlit
+Cloud. Esse pacote não pode ser instalado junto com outro pacote do OpenCV. Se o ambiente já
+tiver o `opencv-python` ou o `opencv-contrib-python`, desinstale-os antes do `pip install`:
 
 ```bat
-pip uninstall -y opencv-python
+pip uninstall -y opencv-python opencv-contrib-python
 ```
 
 Nas próximas vezes, basta ativar o ambiente com `.venv\Scripts\activate` antes de rodar os

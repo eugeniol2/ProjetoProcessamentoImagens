@@ -253,7 +253,7 @@ def executarFluxo(entrada, parametros):
     return {"entrada": entrada, "cor": cor, "contraste": contraste, "final": final}
 
 
-@st.cache_resource(max_entries=4, show_spinner="Processando a imagem...")
+@st.cache_resource(max_entries=2, show_spinner="Processando a imagem...")
 def processarImagem(nomeImagem, parametros):
     crua, referencia = base_de_dados.carregarPar(nomeImagem, PASTA_BASE)
     canalEscuro = parte1.calcularCanalEscuro(crua, parametros["janela"])
