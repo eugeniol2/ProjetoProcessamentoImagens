@@ -1,9 +1,13 @@
 import inspect
+import textwrap
 from pathlib import Path
 
 import cv2
 import numpy as np
+import pandas as pd
+import pymupdf
 import streamlit as st
+from matplotlib.colors import to_rgba
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
@@ -11,6 +15,7 @@ from matplotlib.ticker import FuncFormatter, MaxNLocator
 
 import avaliacao
 import base_de_dados
+import executar_busca_global as busca
 import parte1_restauracao as parte1
 import parte2_tradicional as parte2
 import utilitarios
@@ -22,8 +27,21 @@ INTRODUCAO = "Introdução"
 FLUXO_TRADICIONAL = "Fluxo 1 — Tradicional"
 FLUXO_MCGLAMERY = "Fluxo 2 — McGlamery"
 RESULTADO = "Resultado"
+RESULTADOS_GLOBAIS = "Resultados globais"
+SLIDES = "Slides da apresentação"
 COMBINACAO = "McGlamery + métodos tradicionais"
-SECOES = [INTRODUCAO, FLUXO_TRADICIONAL, FLUXO_MCGLAMERY, RESULTADO]
+SECOES = [INTRODUCAO, FLUXO_TRADICIONAL, FLUXO_MCGLAMERY, RESULTADO, RESULTADOS_GLOBAIS]
+CHAVE_DO_MODO_SLIDES = "modoSlides"
+ARQUIVO_DOS_SLIDES = PASTA_PROJETO / "static" / "slides.pdf"
+ENDERECO_DOS_SLIDES = "app/static/slides.pdf"
+RESOLUCAO_DOS_SLIDES = 150
+GOOGLE_SLIDES = (
+    "https://docs.google.com/presentation/d/1rwOhLYTPyqACjoLne-jWar1hVlUJ9XGFF496TNmY9oc"
+)
+GOOGLE_SLIDES_APRESENTACAO = f"{GOOGLE_SLIDES}/present"
+GOOGLE_SLIDES_EMBUTIDO = f"{GOOGLE_SLIDES}/embed?start=false&loop=false&delayms=3000"
+ALTURA_DO_GOOGLE_SLIDES = 640
+CHAVE_DO_SLIDE = "slide"
 MODELO = "O modelo de McGlamery-Jaffe"
 CANAL_ESCURO = "Etapa 1 — Canal escuro (dark channel)"
 COR_DA_AGUA = "Etapa 2 — Cor da água B"
@@ -83,7 +101,7 @@ COR_DA_SUPERFICIE = "#fcfcfb"
 COR_DO_TEXTO = "#0b0b0b"
 COR_DO_TEXTO_SECUNDARIO = "#52514e"
 COR_DA_GRADE = "#e1e0d9"
-TAMANHO_DO_GRAFICO_DE_NOTAS = (6.0, 2.6)
+LARGURA_DO_GRAFICO_DE_NOTAS = 6.0
 ALTURA_DA_BARRA_DE_NOTAS = 0.6
 FOLGA_DO_GRAFICO_DO_PSNR = 1.5
 LIMITE_DO_GRAFICO_DO_SSIM = 1.4
@@ -239,8 +257,61 @@ LIMITACAO_DO_PROJETO = (
     "delas no PSNR, e 4 no SSIM. Na média, ficou abaixo até da foto crua: 15,31 dB, contra "
     "15,78 dB da crua e 16,96 dB do Fluxo 1. A imagem piloto é um caso favorável à restauração. "
     "Por isso os parâmetros ficam ajustáveis em cada etapa: dá para escolher outra foto na barra "
-    "lateral e testar se ela fica melhor ou pior."
+    "lateral e testar se ela fica melhor ou pior. A seção Resultados globais procura os valores "
+    "que funcionam melhor na base inteira."
 )
+ARQUIVOS_DA_BUSCA = ["fluxo1", "fluxo2", "combinacao", "por_imagem", "melhores_por_foto"]
+SAIDAS_DA_BUSCA = {FLUXO_TRADICIONAL: "fluxo1", FLUXO_MCGLAMERY: "fluxo2", COMBINACAO: "combinacao"}
+FOLGA_DO_GRAFICO_DO_EFEITO = 1.9
+VALORES_PARA_TER_MEIO = 3
+LARGURA_DO_GRAFICO_DO_EFEITO = 6.0
+ALTURA_POR_BARRA = 0.42
+ALTURA_EXTRA_DO_GRAFICO = 0.9
+LARGURA_POR_VALOR = 0.75
+MARGEM_DO_GRAFICO_DE_CONTAGEM = 0.6
+ALTURA_DO_GRAFICO_DE_CONTAGEM = 3.0
+LARGURA_DA_COLUNA = 0.7
+FOLGA_DAS_COLUNAS = 1.18
+LARGURA_DO_TITULO_DO_PAINEL = 18
+CORES_DOS_METODOS = ["#2a78d6", "#eb6834", "#1baf7a"]
+OPACIDADE_SEM_ESCOLHA = 0.4
+METODOS_DOS_PARAMETROS = {
+    "ganhoMaximo": "Mundo cinza",
+    "limiteClahe": "CLAHE",
+    "gradeClahe": "CLAHE",
+    "ganhoBaixas": "Homomórfica",
+    "ganhoAltas": "Homomórfica",
+    "janela": "Canal escuro",
+    "raio": "Filtro guiado",
+    "piso": "Recuperação de J",
+}
+COR_DO_DIVE = "#2a78d6"
+COR_DO_PROJETO = "#e34948"
+ALTURA_DA_COMPARACAO = 2.0
+ALTURA_DA_BARRA_DE_FORA = 0.7
+ALTURA_DA_BARRA_DE_DENTRO = 0.36
+LIMITES_DA_BARRA_UNICA = (-0.6, 0.6)
+FOLGA_DA_COMPARACAO_DO_PSNR = 1.3
+LIMITE_DA_COMPARACAO_DO_SSIM = 1.25
+ESPESSURA_DO_CONTORNO = 1.5
+COMO_O_UIEB_AVALIA = (
+    "- **As referências.** Cada foto foi melhorada por 12 métodos, e 50 voluntários escolheram a "
+    "melhor versão, comparando duas a duas.\n"
+    "- **As fotos sem referência.** As 60 fotos em que nenhuma versão agradou ficaram sem "
+    "referência e não entram nesta avaliação.\n"
+    "- **A nota.** Cada método é aplicado às 890 fotos, e a nota é a média do PSNR e do SSIM "
+    "contra as referências.\n"
+    "- **Notas sem referência.** Os autores testaram notas que olham só a saída, a UCIQE e a "
+    "UIQM, e mostraram que elas nem sempre concordam com o olho humano."
+)
+NOTAS_DO_ARTIGO_DO_UIEB = {
+    "dive+": (20.84, 0.871),
+    "Fusão": (18.75, 0.816),
+    "Histogram prior": (16.01, 0.589),
+    "Red Channel": (14.89, 0.597),
+    "GDCP": (12.53, 0.550),
+    "UDCP": (11.03, 0.500),
+}
 
 
 def executarFluxo(entrada, parametros):
@@ -680,8 +751,11 @@ def graficoDeNotas(notas, indice, casas, limite, marcas, titulo):
     valores = [nota[indice] for nota in notas.values()]
     destaques = barrasEmDestaque(valores, casas)
     cores = [COR_DE_DESTAQUE if destaque else COR_SEM_DESTAQUE for destaque in destaques]
+    altura = ALTURA_POR_BARRA * len(valores) + ALTURA_EXTRA_DO_GRAFICO
     figura = Figure(
-        figsize=TAMANHO_DO_GRAFICO_DE_NOTAS, layout="constrained", facecolor=COR_DA_SUPERFICIE
+        figsize=(LARGURA_DO_GRAFICO_DE_NOTAS, altura),
+        layout="constrained",
+        facecolor=COR_DA_SUPERFICIE,
     )
     eixo = figura.subplots()
     eixo.barh(range(len(valores)), valores, height=ALTURA_DA_BARRA_DE_NOTAS, color=cores)
@@ -2190,7 +2264,9 @@ def paginaIntroducao(resultados):
         "água e a transmissão, e recupera a cena sem a água.\n"
         "- **Resultado.** Compara a saída de cada fluxo com a referência do UIEB, usando PSNR e "
         f"SSIM. Mostra também {COMBINACAO}, que aplica os métodos tradicionais depois da "
-        "restauração."
+        "restauração.\n"
+        "- **Resultados globais.** Testa combinações de parâmetros nas 890 fotos do UIEB, fica "
+        "com a melhor de cada fluxo e mostra como cada método se sai na base inteira."
     )
     st.html(diagramaDosFluxos())
     st.info(
@@ -2203,10 +2279,13 @@ def paginaIntroducao(resultados):
         "As fotos vêm do UIEB (Li et al., 2019), que traz 890 imagens subaquáticas com uma "
         "referência para cada uma. O projeto usa uma imagem piloto, a 13_img_, com o mergulhador: "
         "todos os parâmetros foram escolhidos nela, e a comparação entre os fluxos é feita nela. "
+        "A seção Resultados globais repete a comparação nas 890 fotos, com os valores que "
+        "funcionam melhor na base inteira. "
         "Na barra lateral você escolhe a imagem e a seção. Em cada etapa aparecem o antes e o "
         "depois, o problema que a etapa resolve, o motivo da escolha do método e o trecho do "
-        "código. Os botões Anterior e Próxima seguem a ordem: introdução, Fluxo 1, Fluxo 2 e "
-        "resultado."
+        "código. Os botões Anterior e Próxima seguem a ordem: introdução, Fluxo 1, Fluxo 2, "
+        "resultado e resultados globais. O botão Abrir slides, no alto da barra lateral, mostra "
+        "os slides da apresentação um por um."
     )
     st.info(
         "Os parâmetros de cada etapa podem ser mudados nos controles 'Experimente', e valem para "
@@ -2264,6 +2343,633 @@ def paginaResultado(resultados):
     mostrarTrechoDeCodigo([avaliacao.calcularPsnr, avaliacao.calcularSsim], [])
 
 
+def caminhoDaBusca(nome):
+    return busca.PASTA_SAIDA / f"{nome}.csv"
+
+
+def buscaGlobalDisponivel():
+    return all(caminhoDaBusca(nome).exists() for nome in ARQUIVOS_DA_BUSCA)
+
+
+@st.cache_data
+def carregarBuscaGlobal():
+    return {nome: pd.read_csv(caminhoDaBusca(nome)) for nome in ARQUIVOS_DA_BUSCA}
+
+
+def melhoresValores(tabela, parametros):
+    indice = tabela["ssim_media"].idxmax()
+
+    return {nome: tabela.at[indice, nome] for nome in parametros}
+
+
+def colunaDaSaida(chave, versao):
+    return f"{chave}_{versao}"
+
+
+def mediasGlobais(porImagem, versao):
+    notas = {"Imagem crua": (porImagem["psnr_crua"].mean(), porImagem["ssim_crua"].mean())}
+    for rotulo, chave in SAIDAS_DA_BUSCA.items():
+        coluna = colunaDaSaida(chave, versao)
+        notas[rotulo] = (porImagem[f"psnr_{coluna}"].mean(), porImagem[f"ssim_{coluna}"].mean())
+
+    return notas
+
+
+def fotosAFrente(porImagem, coluna, colunaDeComparacao):
+    return int((porImagem[f"ssim_{coluna}"] > porImagem[f"ssim_{colunaDeComparacao}"]).sum())
+
+
+def tabelaGlobalDosMetodos(porImagem):
+    projeto = mediasGlobais(porImagem, "projeto")
+    melhores = mediasGlobais(porImagem, "global")
+    total = len(porImagem)
+
+    return {
+        "saída": list(SAIDAS_DA_BUSCA),
+        "PSNR, valores do projeto": [round(projeto[rotulo][0], 2) for rotulo in SAIDAS_DA_BUSCA],
+        "SSIM, valores do projeto": [round(projeto[rotulo][1], 3) for rotulo in SAIDAS_DA_BUSCA],
+        "PSNR, melhores valores": [round(melhores[rotulo][0], 2) for rotulo in SAIDAS_DA_BUSCA],
+        "SSIM, melhores valores": [round(melhores[rotulo][1], 3) for rotulo in SAIDAS_DA_BUSCA],
+        "fotos em que superou a crua no SSIM": [
+            f"{fotosAFrente(porImagem, colunaDaSaida(chave, 'global'), 'crua')} de {total}"
+            for chave in SAIDAS_DA_BUSCA.values()
+        ],
+    }
+
+
+def valoresTestados(nome, valores):
+    return " | ".join(textoDoParametro(nome, valor) for valor in valores)
+
+
+def tabelaDaBusca(valoresPorParametro, melhor, total):
+    return {
+        "parâmetro": [NOMES_DOS_PARAMETROS[nome] for nome in valoresPorParametro],
+        "valores testados": [
+            valoresTestados(nome, valores) for nome, valores in valoresPorParametro.items()
+        ],
+        "valor do projeto": [valorDoProjeto(nome) for nome in valoresPorParametro],
+        f"melhor nas {total} fotos": [
+            textoDoParametro(nome, melhor[nome]) for nome in valoresPorParametro
+        ],
+    }
+
+
+def mascaraDosOutrosNoMelhor(tabela, melhor, nome):
+    mascara = pd.Series(True, index=tabela.index)
+    for outro, valor in melhor.items():
+        if outro != nome:
+            mascara &= np.isclose(tabela[outro], valor)
+
+    return mascara
+
+
+def ssimVariandoUmParametro(tabela, melhor, nome):
+    linhas = tabela[mascaraDosOutrosNoMelhor(tabela, melhor, nome)].sort_values(nome)
+
+    return linhas[nome].tolist(), linhas["ssim_media"].tolist()
+
+
+def parametrosVariados(valoresPorParametro):
+    return [nome for nome, valores in valoresPorParametro.items() if len(valores) > 1]
+
+
+def efeitoDosParametros(tabela, melhor, valoresPorParametro):
+    efeitos = {}
+    for nome in parametrosVariados(valoresPorParametro):
+        valores, notas = ssimVariandoUmParametro(tabela, melhor, nome)
+        efeitos[nome] = max(notas) - min(notas)
+
+    return efeitos
+
+
+def escreverEfeitosNasBarras(eixo, valores, limite):
+    afastamento = limite * AFASTAMENTO_DO_TEXTO
+    for posicao, valor in enumerate(valores):
+        texto = decimalBrasileiro(valor, 3)
+        eixo.text(
+            valor + afastamento,
+            posicao,
+            f"{texto} · maior efeito" if posicao == 0 else texto,
+            va="center",
+            fontsize=9,
+            color=COR_DO_TEXTO,
+            fontweight="bold" if posicao == 0 else "normal",
+        )
+
+
+def graficoDoEfeito(efeitos, titulo):
+    ordenados = sorted(efeitos, key=efeitos.get, reverse=True)
+    valores = [efeitos[nome] for nome in ordenados]
+    limite = max(max(valores), 0.001) * FOLGA_DO_GRAFICO_DO_EFEITO
+    altura = ALTURA_POR_BARRA * len(valores) + ALTURA_EXTRA_DO_GRAFICO
+    figura = Figure(
+        figsize=(LARGURA_DO_GRAFICO_DO_EFEITO, altura),
+        layout="constrained",
+        facecolor=COR_DA_SUPERFICIE,
+    )
+    eixo = figura.subplots()
+    cores = [COR_DE_DESTAQUE] + [COR_SEM_DESTAQUE] * (len(valores) - 1)
+    eixo.barh(range(len(valores)), valores, height=ALTURA_DA_BARRA_DE_NOTAS, color=cores)
+    escreverEfeitosNasBarras(eixo, valores, limite)
+    formatarEixoDasNotas(eixo, [NOMES_DOS_PARAMETROS[nome] for nome in ordenados], limite, [])
+    figura.suptitle(titulo, x=POSICAO_DO_TITULO, ha="left", fontsize=10, color=COR_DO_TEXTO)
+
+    return figura
+
+
+def contagemDosMelhores(melhoresPorFoto, nome, valores):
+    contagem = melhoresPorFoto[nome].value_counts()
+
+    return [int(contagem.get(valor, 0)) for valor in valores]
+
+
+def escreverContagensNasColunas(eixo, contagens, escolhidas):
+    for posicao, (contagem, escolhida) in enumerate(zip(contagens, escolhidas)):
+        eixo.text(
+            posicao,
+            contagem,
+            inteiroBrasileiro(contagem),
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color=COR_DO_TEXTO,
+            fontweight="bold" if escolhida else "normal",
+        )
+
+
+def formatarPainelDeContagem(eixo, nome, valores, teto):
+    rotulos = [textoDoParametro(nome, valor) for valor in valores]
+    titulo = textwrap.fill(NOMES_DOS_PARAMETROS[nome], LARGURA_DO_TITULO_DO_PAINEL)
+    eixo.set_facecolor(COR_DA_SUPERFICIE)
+    eixo.set_xticks(range(len(valores)), rotulos, fontsize=8, color=COR_DO_TEXTO)
+    eixo.set_ylim(0, teto)
+    eixo.set_yticks([])
+    eixo.spines[["top", "right", "left"]].set_visible(False)
+    eixo.spines["bottom"].set_color(COR_SEM_DESTAQUE)
+    eixo.tick_params(axis="x", length=0)
+    eixo.set_title(titulo, fontsize=9, color=COR_DO_TEXTO)
+
+
+def coresDosMetodos(parametros):
+    metodos = list(dict.fromkeys(METODOS_DOS_PARAMETROS[nome] for nome in parametros))
+
+    return dict(zip(metodos, CORES_DOS_METODOS))
+
+
+def desenharPainelDeContagem(eixo, nome, valores, contagens, melhor, teto, cor):
+    escolhidas = [bool(np.isclose(valor, melhor[nome])) for valor in valores]
+    cores = [to_rgba(cor, 1 if escolhida else OPACIDADE_SEM_ESCOLHA) for escolhida in escolhidas]
+    eixo.bar(range(len(valores)), contagens, width=LARGURA_DA_COLUNA, color=cores)
+    escreverContagensNasColunas(eixo, contagens, escolhidas)
+    formatarPainelDeContagem(eixo, nome, valores, teto)
+
+
+def legendaDosMetodos(figura, cores):
+    marcas = [Patch(facecolor=cor, label=metodo) for metodo, cor in cores.items()]
+    figura.legend(
+        handles=marcas, loc="outside lower center", ncols=len(marcas), frameon=False, fontsize=9
+    )
+
+
+def graficoDosMelhoresPorFoto(melhoresPorFoto, valoresPorParametro, melhor, titulo):
+    variados = parametrosVariados(valoresPorParametro)
+    cores = coresDosMetodos(variados)
+    contagens = {
+        nome: contagemDosMelhores(melhoresPorFoto, nome, valoresPorParametro[nome])
+        for nome in variados
+    }
+    larguras = [len(valoresPorParametro[nome]) for nome in variados]
+    teto = max(max(contagem) for contagem in contagens.values()) * FOLGA_DAS_COLUNAS
+    figura = Figure(
+        figsize=(
+            LARGURA_POR_VALOR * sum(larguras) + MARGEM_DO_GRAFICO_DE_CONTAGEM,
+            ALTURA_DO_GRAFICO_DE_CONTAGEM,
+        ),
+        layout="constrained",
+        facecolor=COR_DA_SUPERFICIE,
+    )
+    eixos = figura.subplots(1, len(variados), gridspec_kw={"width_ratios": larguras})
+    for eixo, nome in zip(eixos, variados):
+        cor = cores[METODOS_DOS_PARAMETROS[nome]]
+        valores = valoresPorParametro[nome]
+        desenharPainelDeContagem(eixo, nome, valores, contagens[nome], melhor, teto, cor)
+    legendaDosMetodos(figura, cores)
+    figura.suptitle(titulo, x=POSICAO_DO_TITULO, ha="left", fontsize=10, color=COR_DO_TEXTO)
+
+    return figura
+
+
+def escreverNotasDaComparacao(eixo, notaDoDive, nota, casas, unidade, limite):
+    afastamento = limite * AFASTAMENTO_DO_TEXTO
+    eixo.text(
+        notaDoDive + afastamento,
+        0,
+        f"{decimalBrasileiro(notaDoDive, casas)}{unidade}",
+        va="center",
+        fontsize=9,
+        color=COR_DO_TEXTO,
+    )
+    eixo.text(
+        nota - afastamento,
+        0,
+        f"{decimalBrasileiro(nota, casas)}{unidade}",
+        ha="right",
+        va="center",
+        fontsize=9,
+        color=BRANCO,
+        fontweight="bold",
+    )
+
+
+def formatarEixoDaComparacao(eixo, limite):
+    eixo.set_facecolor(COR_DA_SUPERFICIE)
+    eixo.set_xlim(0, limite)
+    eixo.set_ylim(*LIMITES_DA_BARRA_UNICA)
+    eixo.set_yticks([])
+    eixo.xaxis.set_major_formatter(FuncFormatter(rotuloDecimalDoEixo))
+    eixo.grid(axis="x", color=COR_DA_GRADE, linewidth=0.8)
+    eixo.set_axisbelow(True)
+    eixo.spines[["top", "right", "left"]].set_visible(False)
+    eixo.spines["bottom"].set_color(COR_SEM_DESTAQUE)
+    eixo.tick_params(axis="x", labelsize=8, colors=COR_DO_TEXTO_SECUNDARIO)
+
+
+def graficoDaComparacaoComDive(notaDoDive, nota, rotulo, casas, unidade, limite, titulo):
+    figura = Figure(
+        figsize=(LARGURA_DO_GRAFICO_DE_NOTAS, ALTURA_DA_COMPARACAO),
+        layout="constrained",
+        facecolor=COR_DA_SUPERFICIE,
+    )
+    eixo = figura.subplots()
+    eixo.barh(
+        0,
+        notaDoDive,
+        height=ALTURA_DA_BARRA_DE_FORA,
+        color=COR_DO_DIVE,
+        label="dive+, aplicativo comercial",
+    )
+    eixo.barh(
+        0,
+        nota,
+        height=ALTURA_DA_BARRA_DE_DENTRO,
+        color=COR_DO_PROJETO,
+        edgecolor=COR_DA_SUPERFICIE,
+        linewidth=ESPESSURA_DO_CONTORNO,
+        label=f"{rotulo}, melhores valores",
+    )
+    escreverNotasDaComparacao(eixo, notaDoDive, nota, casas, unidade, limite)
+    formatarEixoDaComparacao(eixo, limite)
+    figura.legend(loc="outside lower center", ncols=2, frameon=False, fontsize=8)
+    figura.suptitle(titulo, x=POSICAO_DO_TITULO, ha="left", fontsize=10, color=COR_DO_TEXTO)
+
+    return figura
+
+
+def melhorSaidaDoProjeto(porImagem):
+    melhores = mediasGlobais(porImagem, "global")
+    ssims = {rotulo: melhores[rotulo][1] for rotulo in SAIDAS_DA_BUSCA}
+
+    return max(ssims, key=ssims.get)
+
+
+def porcentagemDoDive(nota, notaDoDive):
+    return round(100 * nota / notaDoDive)
+
+
+def subidaDoSsim(porImagem, chave):
+    globalMedio = decimalBrasileiro(porImagem[f"ssim_{chave}_global"].mean(), 3)
+    porFotoMedio = decimalBrasileiro(porImagem[f"ssim_{chave}_porFoto"].mean(), 3)
+
+    return f"de {globalMedio} para {porFotoMedio}"
+
+
+def textoDaMelhorDeCadaFoto(porImagem):
+    return (
+        "Se cada foto usasse a sua própria melhor combinação, o SSIM médio do Fluxo 1 subiria "
+        f"{subidaDoSsim(porImagem, 'fluxo1')}, e o do Fluxo 2 "
+        f"{subidaDoSsim(porImagem, 'fluxo2')}."
+    )
+
+
+def escolhaDiferenteDaMaisFrequente(melhoresPorFoto, valoresPorParametro, melhor):
+    for nome in parametrosVariados(valoresPorParametro):
+        valores = valoresPorParametro[nome]
+        contagens = contagemDosMelhores(melhoresPorFoto, nome, valores)
+        if not np.isclose(valores[int(np.argmax(contagens))], melhor[nome]):
+            return True
+
+    return False
+
+
+def comMinuscula(texto):
+    return texto[:1].lower() + texto[1:]
+
+
+def parametrosNaPonta(valoresPorParametro, melhor):
+    return [
+        nome
+        for nome, valores in valoresPorParametro.items()
+        if len(valores) >= VALORES_PARA_TER_MEIO and melhor[nome] in (min(valores), max(valores))
+    ]
+
+
+def textoDosParametrosNaPonta(valoresPorParametro, melhor):
+    naPonta = parametrosNaPonta(valoresPorParametro, melhor)
+    if not naPonta:
+        return "Os melhores valores ficaram no meio da lista testada."
+    itens = ", ".join(
+        f"{comMinuscula(NOMES_DOS_PARAMETROS[nome])} em {textoDoParametro(nome, melhor[nome])}"
+        for nome in naPonta
+    )
+
+    return (
+        f"Ficaram na ponta da lista testada: {itens}. Nesses casos, pode haver um valor um pouco "
+        "melhor fora da lista, se o parâmetro permitir."
+    )
+
+
+def mostrarComoOUiebAvalia():
+    st.markdown("**Como o UIEB chega aos resultados dele**")
+    st.markdown(COMO_O_UIEB_AVALIA)
+    esquerda, direita = st.columns(2)
+    esquerda.pyplot(graficoDoPsnr(NOTAS_DO_ARTIGO_DO_UIEB))
+    direita.pyplot(graficoDoSsim(NOTAS_DO_ARTIGO_DO_UIEB))
+    st.caption(
+        "Médias nas 890 fotos, na tabela II do artigo do UIEB (Li et al., 2019). Red Channel, "
+        "GDCP e UDCP usam modelo físico, e o UDCP usa o canal escuro com verde e azul, a mesma "
+        "ideia da etapa 1 do Fluxo 2. O dive+ e a fusão deram origem a 68% das referências, o que "
+        "lhes dá vantagem. Como o cálculo do SSIM pode variar entre implementações, a comparação "
+        "com o projeto é aproximada."
+    )
+
+
+def mostrarComoChegamos(dados, total):
+    combinacoesDaExploracao = len(busca.combinacoes(busca.VALORES_DA_EXPLORACAO))
+    st.markdown("**Como chegamos ao resultado geral**")
+    st.write(
+        f"Do mesmo jeito que o UIEB, a nota é a média do SSIM nas {total} fotos. Para cada fluxo, "
+        "montamos uma lista de valores para cada parâmetro, sempre com o valor do projeto, e "
+        "testamos todas as combinações desses valores em todas as fotos. A melhor combinação é "
+        "a de maior SSIM médio. As listas do Fluxo 1 saíram de uma exploração com "
+        f"{combinacoesDaExploracao} combinações em {busca.FOTOS_DA_EXPLORACAO} fotos."
+    )
+    abas = st.tabs([FLUXO_TRADICIONAL, FLUXO_MCGLAMERY, COMBINACAO])
+    buscas = [
+        (busca.VALORES_DO_FLUXO_1, dados["fluxo1"]),
+        (busca.VALORES_DO_FLUXO_2, dados["fluxo2"]),
+        (busca.VALORES_DA_COMBINACAO, dados["combinacao"]),
+    ]
+    for aba, (valores, tabela) in zip(abas, buscas):
+        with aba:
+            st.caption(f"{len(tabela)} combinações testadas em cada uma das {total} fotos")
+            melhor = melhoresValores(tabela, valores)
+            st.dataframe(tabelaDaBusca(valores, melhor, total), hide_index=True)
+    st.caption(
+        f"Em {COMBINACAO}, a parte tradicional usa os melhores valores do Fluxo 1, a janela e o "
+        "raio vêm do melhor Fluxo 2, e só o piso é testado."
+    )
+
+
+def mostrarEfeitoDosParametros(dados):
+    st.markdown("**Qual parâmetro mais pesa**")
+    st.write(
+        "Partindo da melhor combinação, cada parâmetro foi trocado pelos outros valores testados. "
+        "A barra mostra quanto o SSIM médio muda entre o pior e o melhor valor."
+    )
+    buscas = [
+        (FLUXO_TRADICIONAL, busca.VALORES_DO_FLUXO_1, dados["fluxo1"]),
+        (FLUXO_MCGLAMERY, busca.VALORES_DO_FLUXO_2, dados["fluxo2"]),
+    ]
+    colunas = st.columns(2)
+    for coluna, (rotulo, valores, tabela) in zip(colunas, buscas):
+        melhor = melhoresValores(tabela, valores)
+        efeitos = efeitoDosParametros(tabela, melhor, valores)
+        coluna.pyplot(graficoDoEfeito(efeitos, f"{rotulo}: quanto o SSIM médio muda"))
+        coluna.caption(textoDosParametrosNaPonta(valores, melhor))
+
+
+def mostrarComportamentoDosMetodos(porImagem):
+    total = len(porImagem)
+    st.markdown(f"**Como cada método se comporta nas {total} fotos**")
+    melhores = mediasGlobais(porImagem, "global")
+    esquerda, direita = st.columns(2)
+    esquerda.pyplot(graficoDoPsnr(melhores))
+    direita.pyplot(graficoDoSsim(melhores))
+    st.caption(
+        f"Médias nas {total} fotos, com os melhores valores de cada fluxo. Em azul, a maior nota "
+        "de cada gráfico."
+    )
+    st.dataframe(tabelaGlobalDosMetodos(porImagem), hide_index=True)
+    psnrCrua, ssimCrua = melhores["Imagem crua"]
+    vitorias = fotosAFrente(porImagem, "fluxo2_global", "fluxo1_global")
+    st.write(
+        f"A foto crua, sem nenhum tratamento, tem PSNR médio {decimalBrasileiro(psnrCrua, 2)} dB "
+        f"e SSIM médio {decimalBrasileiro(ssimCrua, 3)}. Com os melhores valores de cada um, o "
+        f"Fluxo 2 superou o Fluxo 1 no SSIM em {vitorias} de {total} fotos."
+    )
+
+
+def mostrarMelhoresPorFoto(dados):
+    total = len(dados["por_imagem"])
+    st.markdown("**Em quantas fotos cada valor foi o melhor**")
+    st.write(
+        "Para cada foto, achamos a combinação que deu o maior SSIM naquela foto. Cada coluna "
+        f"conta em quantas das {total} fotos aquele valor fazia parte dessa combinação. Cada "
+        "método tem a sua cor, e a coluna de cor mais forte é o valor escolhido para a base "
+        f"inteira. {textoDaMelhorDeCadaFoto(dados['por_imagem'])}"
+    )
+    buscas = [
+        (FLUXO_TRADICIONAL, busca.VALORES_DO_FLUXO_1, dados["fluxo1"]),
+        (FLUXO_MCGLAMERY, busca.VALORES_DO_FLUXO_2, dados["fluxo2"]),
+    ]
+    diferentes = []
+    abas = st.tabs([rotulo for rotulo, valores, tabela in buscas])
+    for aba, (rotulo, valores, tabela) in zip(abas, buscas):
+        melhor = melhoresValores(tabela, valores)
+        aba.pyplot(graficoDosMelhoresPorFoto(dados["melhores_por_foto"], valores, melhor, rotulo))
+        diferentes.append(
+            escolhaDiferenteDaMaisFrequente(dados["melhores_por_foto"], valores, melhor)
+        )
+    if any(diferentes):
+        st.caption(
+            "O valor escolhido nem sempre é o que mais vence foto a foto. Ele é o que dá a maior "
+            "média, somando o que se ganha e o que se perde em todas as fotos."
+        )
+
+
+def mostrarComparacaoComDive(porImagem):
+    rotulo = melhorSaidaDoProjeto(porImagem)
+    psnr, ssim = mediasGlobais(porImagem, "global")[rotulo]
+    psnrDoDive, ssimDoDive = NOTAS_DO_ARTIGO_DO_UIEB["dive+"]
+    st.markdown("**O quão perto chegamos do dive+**")
+    st.write(
+        "A barra azul é o dive+, o aplicativo comercial que ficou em primeiro na tabela do UIEB. "
+        f"A vermelha, por dentro, é o {rotulo} com os melhores valores, a nossa melhor saída. "
+        "Quanto mais a vermelha preenche a azul, mais perto chegamos."
+    )
+    esquerda, direita = st.columns(2)
+    esquerda.pyplot(
+        graficoDaComparacaoComDive(
+            psnrDoDive,
+            psnr,
+            rotulo,
+            2,
+            " dB",
+            psnrDoDive * FOLGA_DA_COMPARACAO_DO_PSNR,
+            f"PSNR (dB): {porcentagemDoDive(psnr, psnrDoDive)}% do dive+",
+        )
+    )
+    direita.pyplot(
+        graficoDaComparacaoComDive(
+            ssimDoDive,
+            ssim,
+            rotulo,
+            3,
+            "",
+            LIMITE_DA_COMPARACAO_DO_SSIM,
+            f"SSIM: {porcentagemDoDive(ssim, ssimDoDive)}% do dive+",
+        )
+    )
+    st.caption(
+        "O dive+ deu origem a 43,9% das referências do UIEB, então tem vantagem nessa comparação. "
+        "As notas dele vêm do artigo, e o SSIM pode variar um pouco entre implementações."
+    )
+
+
+def paginaResultadosGlobais():
+    st.header(RESULTADOS_GLOBAIS)
+    st.caption("As 890 fotos do UIEB, com a melhor combinação de parâmetros de cada fluxo")
+    mostrarComoOUiebAvalia()
+    if not buscaGlobalDisponivel():
+        st.warning(
+            "Os resultados da busca ainda não foram gerados. Coloque a base completa em dados/ e "
+            "rode python executar_busca_global.py."
+        )
+        return
+    dados = carregarBuscaGlobal()
+    total = len(dados["por_imagem"])
+    mostrarComoChegamos(dados, total)
+    mostrarEfeitoDosParametros(dados)
+    mostrarComportamentoDosMetodos(dados["por_imagem"])
+    mostrarMelhoresPorFoto(dados)
+    mostrarComparacaoComDive(dados["por_imagem"])
+    with st.expander("Ver o código da busca"):
+        for funcao in [
+            busca.combinacoes,
+            busca.notasDoFluxo1,
+            busca.cenasRestauradas,
+            busca.indiceDaMelhor,
+        ]:
+            mostrarFuncao(funcao)
+
+
+@st.cache_data(show_spinner=False)
+def quantidadeDeSlides(caminho, modificado):
+    with pymupdf.open(caminho) as documento:
+        return documento.page_count
+
+
+@st.cache_data(show_spinner="Preparando o slide...")
+def imagemDoSlide(caminho, modificado, numero):
+    with pymupdf.open(caminho) as documento:
+        return documento[numero - 1].get_pixmap(dpi=RESOLUCAO_DOS_SLIDES).tobytes("png")
+
+
+def mudarDeSlide(passo, total):
+    st.session_state[CHAVE_DO_SLIDE] = min(max(st.session_state[CHAVE_DO_SLIDE] + passo, 1), total)
+
+
+def mostrarControlesDosSlides(total):
+    atual = st.session_state[CHAVE_DO_SLIDE]
+    anterior, controle, proximo = st.columns([1, 6, 1], vertical_alignment="center")
+    anterior.button(
+        "◀ Anterior",
+        key="slideAnterior",
+        on_click=mudarDeSlide,
+        args=(-1, total),
+        disabled=atual == 1,
+    )
+    controle.slider("Slide", 1, total, key=CHAVE_DO_SLIDE, label_visibility="collapsed")
+    proximo.button(
+        "Próximo ▶",
+        key="slideProximo",
+        on_click=mudarDeSlide,
+        args=(1, total),
+        disabled=atual == total,
+    )
+
+
+def mostrarBotoesDoPdf():
+    esquerda, direita = st.columns(2)
+    esquerda.link_button("Abrir em tela cheia, no visualizador do navegador", ENDERECO_DOS_SLIDES)
+    direita.download_button(
+        "Baixar o PDF",
+        ARQUIVO_DOS_SLIDES.read_bytes(),
+        file_name=ARQUIVO_DOS_SLIDES.name,
+        mime="application/pdf",
+    )
+    st.caption(
+        "Na nova aba, F11 deixa a apresentação em tela cheia, e as setas do teclado passam os "
+        "slides. Aqui no app, passe o mouse sobre o slide e use o botão de expandir para vê-lo "
+        "maior."
+    )
+
+
+def abrirSlides():
+    st.session_state[CHAVE_DO_MODO_SLIDES] = True
+
+
+def fecharSlides():
+    st.session_state[CHAVE_DO_MODO_SLIDES] = False
+
+
+def mostrarGoogleSlides():
+    st.iframe(GOOGLE_SLIDES_EMBUTIDO, height=ALTURA_DO_GOOGLE_SLIDES)
+    st.link_button("Abrir no Google Slides, em modo apresentação", GOOGLE_SLIDES_APRESENTACAO)
+    st.caption(
+        "Clique no slide e use as setas do teclado para passar. O botão de tela cheia fica na "
+        "barra de baixo da apresentação."
+    )
+
+
+def paginaDosSlides():
+    titulo, voltar = st.columns([5, 1], vertical_alignment="center")
+    titulo.header(SLIDES)
+    voltar.button("Voltar ao app", key="voltarDosSlides", on_click=fecharSlides)
+    abaGoogle, abaPdf = st.tabs(["Google Slides", "PDF"])
+    with abaGoogle:
+        mostrarGoogleSlides()
+    with abaPdf:
+        mostrarSlidesDoPdf()
+
+
+def mostrarSlidesDoPdf():
+    if not ARQUIVO_DOS_SLIDES.is_file():
+        st.info(
+            "Coloque o PDF dos slides em static/slides.pdf, dentro da pasta do projeto, e "
+            "recarregue a página."
+        )
+        return
+    caminho = str(ARQUIVO_DOS_SLIDES)
+    modificado = ARQUIVO_DOS_SLIDES.stat().st_mtime
+    total = quantidadeDeSlides(caminho, modificado)
+    st.session_state[CHAVE_DO_SLIDE] = min(st.session_state.get(CHAVE_DO_SLIDE, 1), total)
+    mostrarControlesDosSlides(total)
+    numero = st.session_state[CHAVE_DO_SLIDE]
+    st.image(imagemDoSlide(caminho, modificado, numero), caption=f"Slide {numero} de {total}")
+    mostrarBotoesDoPdf()
+
+
+def mostrarNavegacao():
+    st.divider()
+    posicao = posicaoAtual()
+    colunaAnterior, espaco, colunaProxima = st.columns([1, 4, 1])
+    colunaAnterior.button("Anterior", on_click=mover, args=(-1,), disabled=posicao == 0)
+    colunaProxima.button(
+        "Próxima", on_click=mover, args=(1,), disabled=posicao == len(ordemLinear()) - 1
+    )
+
+
 def chaveDaEtapa(secao):
     return f"etapa::{secao}"
 
@@ -2273,7 +2979,9 @@ def ordemLinear():
         (fluxo, etapa) for fluxo in ETAPAS_DO_FLUXO for etapa in ETAPAS_DO_FLUXO[fluxo]
     ]
 
-    return [(INTRODUCAO, None)] + paradasDosFluxos + [(RESULTADO, None)]
+    paradasFinais = [(RESULTADO, None), (RESULTADOS_GLOBAIS, None)]
+
+    return [(INTRODUCAO, None)] + paradasDosFluxos + paradasFinais
 
 
 def posicaoAtual():
@@ -2304,7 +3012,14 @@ if not (PASTA_BASE / base_de_dados.PASTA_CRUAS).is_dir():
 
 nomesDasImagens = base_de_dados.listarNomesDasImagens(PASTA_BASE / base_de_dados.PASTA_CRUAS)
 
+modoSlides = st.session_state.get(CHAVE_DO_MODO_SLIDES, False)
+
 st.sidebar.title("McGlammery")
+if modoSlides:
+    st.sidebar.button("Voltar ao app", key="fecharSlides", on_click=fecharSlides, type="primary")
+else:
+    st.sidebar.button("Abrir slides", key="abrirSlides", on_click=abrirSlides, type="primary")
+st.sidebar.link_button("Abrir no Google Slides", GOOGLE_SLIDES_APRESENTACAO)
 nomeImagem = st.sidebar.selectbox(
     "Imagem do raw-890", nomesDasImagens, index=nomesDasImagens.index(IMAGEM_PADRAO)
 )
@@ -2314,7 +3029,7 @@ if PASTA_BASE.name == base_de_dados.PASTA_AMOSTRA:
         f"Usando a amostra do projeto, com {len(nomesDasImagens)} fotos. Para ver as 890, coloque "
         "a base UIEB completa em dados/."
     )
-secao = st.sidebar.selectbox("Seção", SECOES, key="secao")
+secao = st.sidebar.selectbox("Seção", SECOES, key="secao", on_change=fecharSlides)
 etapa = None
 if secao in ETAPAS_DO_FLUXO:
     etapa = st.sidebar.radio("Etapa do fluxo", ETAPAS_DO_FLUXO[secao], key=chaveDaEtapa(secao))
@@ -2330,6 +3045,10 @@ if alterados:
     )
     st.sidebar.button("Voltar aos valores do projeto", on_click=voltarAosValoresDoProjeto)
 
+if modoSlides:
+    paginaDosSlides()
+    st.stop()
+
 resultados = processarImagem(nomeImagem, parametros)
 
 if alterados:
@@ -2342,15 +3061,11 @@ if secao == INTRODUCAO:
     paginaIntroducao(resultados)
 elif secao == RESULTADO:
     paginaResultado(resultados)
+elif secao == RESULTADOS_GLOBAIS:
+    paginaResultadosGlobais()
 elif etapa == MODELO:
     paginaModelo(secao, resultados)
 else:
     mostrarEtapa(secao, etapa, resultados)
 
-st.divider()
-posicao = posicaoAtual()
-colunaAnterior, espaco, colunaProxima = st.columns([1, 4, 1])
-colunaAnterior.button("Anterior", on_click=mover, args=(-1,), disabled=posicao == 0)
-colunaProxima.button(
-    "Próxima", on_click=mover, args=(1,), disabled=posicao == len(ordemLinear()) - 1
-)
+mostrarNavegacao()
