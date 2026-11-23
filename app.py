@@ -41,6 +41,7 @@ GOOGLE_SLIDES = (
 GOOGLE_SLIDES_APRESENTACAO = f"{GOOGLE_SLIDES}/present"
 GOOGLE_SLIDES_EMBUTIDO = f"{GOOGLE_SLIDES}/embed?start=false&loop=false&delayms=3000"
 ALTURA_DO_GOOGLE_SLIDES = 640
+CODIGO_FONTE = "https://github.com/eugeniol2/ProjetoProcessamentoImagens"
 CHAVE_DO_SLIDE = "slide"
 MODELO = "O modelo de McGlamery-Jaffe"
 CANAL_ESCURO = "Etapa 1 — Canal escuro (dark channel)"
@@ -3020,6 +3021,7 @@ if modoSlides:
 else:
     st.sidebar.button("Abrir slides", key="abrirSlides", on_click=abrirSlides, type="primary")
 st.sidebar.link_button("Abrir no Google Slides", GOOGLE_SLIDES_APRESENTACAO)
+st.sidebar.link_button("Ver o código-fonte no GitHub", CODIGO_FONTE)
 nomeImagem = st.sidebar.selectbox(
     "Imagem do raw-890", nomesDasImagens, index=nomesDasImagens.index(IMAGEM_PADRAO)
 )
