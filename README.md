@@ -16,14 +16,23 @@ projeto, para ver como os mesmos parâmetros se comportam em outras fotos. Um te
 experimento testa combinações de parâmetros nas 890 fotos da base e fica com a que dá o maior
 SSIM médio em cada fluxo.
 
+Código-fonte: <https://github.com/eugeniol2/ProjetoProcessamentoImagens>
+
 Testado no Windows 11 com Python 3.11. Todos os comandos abaixo são para o **cmd**.
 
 ## 1. Preparar o ambiente
 
-Abra o cmd na pasta do projeto e rode:
+Abra o cmd e baixe o projeto do GitHub:
 
 ```bat
-cd "C:\caminho\para\atividade_1"
+git clone https://github.com/eugeniol2/ProjetoProcessamentoImagens.git
+cd ProjetoProcessamentoImagens
+```
+
+Se recebeu o projeto num arquivo .zip, extraia-o e entre na pasta com
+`cd "C:\caminho\para\a\pasta"`. Depois, crie o ambiente e instale os pacotes:
+
+```bat
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -155,6 +164,9 @@ fluxo2_global: PSNR médio 17.30 dB | SSIM médio 0.777
 fluxo2_porFoto: PSNR médio 18.15 dB | SSIM médio 0.813
 combinacao_projeto: PSNR médio 15.00 dB | SSIM médio 0.728
 combinacao_global: PSNR médio 19.55 dB | SSIM médio 0.858
+Fluxo 1, tradicional: escolhida só com as 200 primeiras fotos, a melhor combinação dá SSIM 0.860 nas outras; a escolhida com todas dá 0.864
+Fluxo 2, McGlamery: escolhida só com as 200 primeiras fotos, a melhor combinação dá SSIM 0.775 nas outras; a escolhida com todas dá 0.784
+McGlamery + métodos tradicionais: escolhida só com as 200 primeiras fotos, a melhor combinação dá SSIM 0.860 nas outras; a escolhida com todas dá 0.860
 ```
 
 Com os melhores valores, o Fluxo 1 continua à frente do Fluxo 2, e a restauração passa a
@@ -189,7 +201,8 @@ e o botão "Voltar ao app" retorna à seção anterior. A aba Google Slides most
 que também abre em modo apresentação pelo botão "Abrir no Google Slides". A aba PDF mostra o
 arquivo `static\slides.pdf` um slide por vez, com botões para avançar e voltar, abre o PDF em
 tela cheia no visualizador do navegador e permite baixá-lo. Para trocar o PDF, substitua esse
-arquivo por outro com o mesmo nome.
+arquivo por outro com o mesmo nome. O botão "Ver o código-fonte no GitHub", também na barra
+lateral, abre o repositório do projeto.
 
 ## Organização do código
 
